@@ -49,11 +49,11 @@ This implementation plan follows a **vertical slice** approach where each featur
   - DELETE /users/me (account deletion)
   - _Requirements: 1.1, 1.3, 1.7_
 
-- [ ]* 3.3 Write property test for user account lifecycle
+- [x]* 3.3 Write property test for user account lifecycle
   - **Property 1: User Account Lifecycle Consistency**
   - **Validates: Requirements 1.1, 1.2, 1.5**
 
-- [ ]* 3.4 Write unit tests for user management
+- [x]* 3.4 Write unit tests for user management
   - Test user creation and validation
   - Test profile updates and statistics tracking
   - Test account deletion preserves anonymized data
