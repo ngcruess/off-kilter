@@ -6,3 +6,6 @@ pub mod error;
 pub mod config;
 pub mod repositories;
 pub mod state;
+
+#[cfg(test)]
+pub mod tests;

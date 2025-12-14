@@ -42,7 +42,7 @@ This implementation plan follows a **vertical slice** approach where each featur
   - Add user statistics and profile fields
   - _Requirements: 1.1, 1.5, 9.2, 9.3_
 
-- [ ] 3.2 Implement user management API endpoints
+- [x] 3.2 Implement user management API endpoints
   - POST /users (registration)
   - GET /users/me (profile)
   - PUT /users/me (update profile)
