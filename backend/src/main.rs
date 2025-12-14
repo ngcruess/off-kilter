@@ -6,7 +6,6 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use tower_http::cors::CorsLayer;
 use tracing::{error, info};
 use tracing_subscriber;
@@ -14,14 +13,10 @@ use tracing_subscriber;
 use kilter_board_backend::{
     config::AppConfig,
     database::connection::{create_pool, run_migrations, health_check},
-    auth::{AuthUser, RequireAuth, JwtConfig},
+    auth::{AuthUser, RequireAuth},
+    handlers::user::user_routes,
+    state::AppState,
 };
-
-#[derive(Clone)]
-pub struct AppState {
-    pub db: PgPool,
-    pub jwt_config: JwtConfig,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health))
         .route("/protected", get(protected_route))
         .route("/user-info", get(user_info))
+        .merge(user_routes())
         .with_state(app_state)
         .layer(CorsLayer::permissive());
 

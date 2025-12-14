@@ -1,0 +1,239 @@
+use axum::{
+    extract::{Path, State},
+    response::Json,
+    routing::{delete, get, post, put},
+    Router,
+};
+use serde_json::{json, Value};
+use uuid::Uuid;
+
+use crate::{
+    auth::AuthUser,
+    error::AppError,
+    models::user::{CreateUserRequest, UpdateUserRequest, ProfileData, PublicUser, PublicStatistics},
+    repositories::user::UserRepository,
+    state::AppState,
+};
+
+pub fn user_routes() -> Router<AppState> {
+    Router::new()
+        .route("/users", post(register_user))
+        .route("/users/me", get(get_current_user))
+        .route("/users/me", put(update_current_user))
+        .route("/users/me", delete(delete_current_user))
+        .route("/users/:id", get(get_user_by_id))
+}
+
+/// Register a new user
+async fn register_user(
+    State(state): State<AppState>,
+    Json(request): Json<CreateUserRequest>,
+) -> Result<Json<Value>, AppError> {
+    let repo = UserRepository::new(state.db);
+
+    // Check if email already exists
+    if repo.email_exists(&request.email).await? {
+        return Err(AppError::BadRequest("Email already registered".to_string()));
+    }
+
+    // Check if username already exists
+    if repo.username_exists(&request.username).await? {
+        return Err(AppError::BadRequest("Username already taken".to_string()));
+    }
+
+    // Validate email format (basic validation)
+    if !request.email.contains('@') {
+        return Err(AppError::BadRequest("Invalid email format".to_string()));
+    }
+
+    // Validate username (basic validation)
+    if request.username.len() < 3 || request.username.len() > 50 {
+        return Err(AppError::BadRequest("Username must be between 3 and 50 characters".to_string()));
+    }
+
+    // Create the user
+    let user = repo.create_user(
+        request.email,
+        request.username,
+        request.profile,
+    ).await?;
+
+    Ok(Json(json!({
+        "message": "User registered successfully",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "created_at": user.created_at
+        }
+    })))
+}
+
+/// Get current user's profile
+async fn get_current_user(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<PublicUser>, AppError> {
+    let repo = UserRepository::new(state.db);
+
+    let (user_data, profile, statistics) = repo.get_user_with_details(user.id).await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    let profile_data = profile.get_profile_data()
+        .map_err(|e| AppError::InternalError(format!("Failed to parse profile data: {}", e)))?;
+
+    let statistics_data = statistics.get_statistics_data()
+        .map_err(|e| AppError::InternalError(format!("Failed to parse statistics data: {}", e)))?;
+
+    // Respect privacy settings
+    let public_stats = match profile_data.privacy_settings.statistics_visibility.as_str() {
+        "public" => PublicStatistics {
+            total_attempts: Some(statistics.total_attempts),
+            total_ascents: Some(statistics.total_ascents),
+            personal_best_grade: statistics.personal_best_grade.clone(),
+            grade_distribution: Some(statistics_data.grade_distribution),
+        },
+        _ => PublicStatistics {
+            total_attempts: None,
+            total_ascents: None,
+            personal_best_grade: None,
+            grade_distribution: None,
+        },
+    };
+
+    let public_user = PublicUser {
+        id: user_data.id,
+        username: user_data.username,
+        profile: profile_data,
+        statistics: public_stats,
+        created_at: user_data.created_at,
+    };
+
+    Ok(Json(public_user))
+}
+
+/// Update current user's profile
+async fn update_current_user(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<UpdateUserRequest>,
+) -> Result<Json<Value>, AppError> {
+    let repo = UserRepository::new(state.db);
+
+    if let Some(profile_data) = request.profile {
+        repo.update_profile(user.id, profile_data).await?;
+    }
+
+    Ok(Json(json!({
+        "message": "Profile updated successfully"
+    })))
+}
+
+/// Delete current user's account
+async fn delete_current_user(
+    user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<Value>, AppError> {
+    let repo = UserRepository::new(state.db);
+
+    repo.delete_user(user.id).await?;
+
+    Ok(Json(json!({
+        "message": "Account deleted successfully"
+    })))
+}
+
+/// Get public user profile by ID
+async fn get_user_by_id(
+    Path(user_id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> Result<Json<PublicUser>, AppError> {
+    let repo = UserRepository::new(state.db);
+
+    let (user_data, profile, statistics) = repo.get_user_with_details(user_id).await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+    let profile_data = profile.get_profile_data()
+        .map_err(|e| AppError::InternalError(format!("Failed to parse profile data: {}", e)))?;
+
+    let statistics_data = statistics.get_statistics_data()
+        .map_err(|e| AppError::InternalError(format!("Failed to parse statistics data: {}", e)))?;
+
+    // Check privacy settings for public access
+    let filtered_profile = match profile_data.privacy_settings.profile_visibility.as_str() {
+        "public" => profile_data.clone(),
+        "friends" => ProfileData {
+            first_name: None,
+            last_name: None,
+            display_name: profile_data.display_name,
+            bio: None,
+            avatar_url: profile_data.avatar_url,
+            location: None,
+            preferred_units: None,
+            privacy_settings: profile_data.privacy_settings.clone(),
+        },
+        _ => ProfileData {
+            display_name: Some("Private User".to_string()),
+            ..Default::default()
+        },
+    };
+
+    let public_stats = match profile_data.privacy_settings.statistics_visibility.as_str() {
+        "public" => PublicStatistics {
+            total_attempts: Some(statistics.total_attempts),
+            total_ascents: Some(statistics.total_ascents),
+            personal_best_grade: statistics.personal_best_grade.clone(),
+            grade_distribution: Some(statistics_data.grade_distribution),
+        },
+        _ => PublicStatistics {
+            total_attempts: None,
+            total_ascents: None,
+            personal_best_grade: None,
+            grade_distribution: None,
+        },
+    };
+
+    let public_user = PublicUser {
+        id: user_data.id,
+        username: if profile_data.privacy_settings.profile_visibility == "private" {
+            "Private User".to_string()
+        } else {
+            user_data.username
+        },
+        profile: filtered_profile,
+        statistics: public_stats,
+        created_at: user_data.created_at,
+    };
+
+    Ok(Json(public_user))
+}
+
+#[cfg(test)]
+mod tests {
+    // Note: These tests would require a test database setup
+    // For now, they're just structure examples
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_register_user() {
+        // Test implementation would go here
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_get_current_user() {
+        // Test implementation would go here
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_update_user_profile() {
+        // Test implementation would go here
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_delete_user() {
+        // Test implementation would go here
+    }
+}

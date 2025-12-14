@@ -5,3 +5,4 @@ pub mod auth;
 pub mod error;
 pub mod config;
 pub mod repositories;
+pub mod state;

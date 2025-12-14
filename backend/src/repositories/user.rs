@@ -294,9 +294,6 @@ impl UserRepository {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use sqlx::PgPool;
-
     // Note: These tests would require a test database setup
     // For now, they're just structure examples
 

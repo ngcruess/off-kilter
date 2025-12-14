@@ -26,6 +26,12 @@ pub enum AppError {
     #[error("Conflict: {0}")]
     Conflict(String),
     
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+    
+    #[error("Internal error: {0}")]
+    InternalError(String),
+    
     #[error("Internal server error")]
     Internal,
 }
@@ -39,6 +45,8 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
         };
 
