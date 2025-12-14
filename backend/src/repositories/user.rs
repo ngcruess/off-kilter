@@ -17,6 +17,29 @@ impl UserRepository {
     pub async fn create_user(&self, email: String, username: String, profile_data: Option<ProfileData>) -> Result<User, AppError> {
         let mut tx = self.pool.begin().await?;
         
+        // Check for duplicates inside the transaction to prevent race conditions
+        let email_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM users WHERE email = $1",
+            email
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if email_count.unwrap_or(0) > 0 {
+            return Err(AppError::BadRequest("Email already registered".to_string()));
+        }
+
+        let username_count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM users WHERE username = $1",
+            username
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if username_count.unwrap_or(0) > 0 {
+            return Err(AppError::BadRequest("Username already taken".to_string()));
+        }
+        
         // Create the user
         let row = sqlx::query!(
             r#"
@@ -147,6 +170,8 @@ impl UserRepository {
     pub async fn update_profile(&self, user_id: Uuid, profile_data: ProfileData) -> Result<UserProfile, AppError> {
         let profile_json = serde_json::to_value(profile_data)?;
         
+        let mut tx = self.pool.begin().await?;
+        
         let row = sqlx::query!(
             r#"
             UPDATE user_profiles 
@@ -157,8 +182,10 @@ impl UserRepository {
             user_id,
             profile_json
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(UserProfile {
             user_id: row.user_id,
@@ -192,14 +219,34 @@ impl UserRepository {
 
     /// Update user statistics after an attempt
     pub async fn record_attempt(&self, user_id: Uuid, grade: &str, success: bool) -> Result<UserStatistics, AppError> {
-        // Get current statistics
-        let mut statistics = self.get_statistics(user_id).await?
-            .ok_or_else(|| AppError::NotFound("User statistics not found".to_string()))?;
+        let mut tx = self.pool.begin().await?;
+        
+        // Get current statistics within the transaction
+        let mut statistics = sqlx::query!(
+            r#"
+            SELECT user_id, total_attempts, total_ascents, personal_best_grade, statistics_data, updated_at 
+            FROM user_statistics 
+            WHERE user_id = $1
+            FOR UPDATE
+            "#,
+            user_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(|row| UserStatistics {
+            user_id: row.user_id,
+            total_attempts: row.total_attempts.unwrap_or(0),
+            total_ascents: row.total_ascents.unwrap_or(0),
+            personal_best_grade: row.personal_best_grade,
+            statistics_data: row.statistics_data,
+            updated_at: row.updated_at.unwrap_or_else(|| Utc::now()),
+        })
+        .ok_or_else(|| AppError::NotFound("User statistics not found".to_string()))?;
 
         // Update the statistics
         statistics.record_attempt(grade, success)?;
 
-        // Save back to database
+        // Save back to database within the transaction
         let row = sqlx::query!(
             r#"
             UPDATE user_statistics 
@@ -215,8 +262,10 @@ impl UserRepository {
             statistics.statistics_data,
             statistics.updated_at
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(UserStatistics {
             user_id: row.user_id,
@@ -251,29 +300,7 @@ impl UserRepository {
         Ok(())
     }
 
-    /// Check if email is already taken
-    pub async fn email_exists(&self, email: &str) -> Result<bool, AppError> {
-        let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM users WHERE email = $1",
-            email
-        )
-        .fetch_one(&self.pool)
-        .await?;
 
-        Ok(count.unwrap_or(0) > 0)
-    }
-
-    /// Check if username is already taken
-    pub async fn username_exists(&self, username: &str) -> Result<bool, AppError> {
-        let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM users WHERE username = $1",
-            username
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(count.unwrap_or(0) > 0)
-    }
 
     /// Get complete user data with profile and statistics
     pub async fn get_user_with_details(&self, user_id: Uuid) -> Result<Option<(User, UserProfile, UserStatistics)>, AppError> {

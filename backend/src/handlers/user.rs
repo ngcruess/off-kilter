@@ -29,18 +29,8 @@ async fn register_user(
     State(state): State<AppState>,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let repo = UserRepository::new(state.db);
-
-    // Check if email already exists
-    if repo.email_exists(&request.email).await? {
-        return Err(AppError::BadRequest("Email already registered".to_string()));
-    }
-
-    // Check if username already exists
-    if repo.username_exists(&request.username).await? {
-        return Err(AppError::BadRequest("Username already taken".to_string()));
-    }
-
+    // Fast-fail validation first (in-memory operations)
+    
     // Validate email format (basic validation)
     if !request.email.contains('@') {
         return Err(AppError::BadRequest("Invalid email format".to_string()));
@@ -51,7 +41,10 @@ async fn register_user(
         return Err(AppError::BadRequest("Username must be between 3 and 50 characters".to_string()));
     }
 
-    // Create the user
+    // Now perform database operations
+    let repo = UserRepository::new(state.db);
+
+    // Create the user (this will check for duplicates inside a transaction)
     let user = repo.create_user(
         request.email,
         request.username,
