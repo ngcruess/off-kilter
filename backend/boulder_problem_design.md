@@ -65,6 +65,24 @@ struct BoulderProblem {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
+
+// User-scoped interaction data (properly separated concerns)
+struct UserProblemInteraction {
+    user_id: Uuid,
+    problem_id: Uuid,
+    has_voted: bool,
+    has_attempted: bool,
+    has_completed: bool,
+    personal_best_attempts: Option<i32>,
+    first_completed_at: Option<DateTime<Utc>>,
+}
+
+// Combined view for API responses
+struct BoulderProblemWithUserData {
+    problem: PublicBoulderProblem,
+    user_interaction: Option<UserProblemInteraction>, // None if anonymous
+}
+```
 ```
 
 ## Validation Rules
@@ -130,4 +148,25 @@ let start_holds = config.get_holds_by_type(HoldType::Start);
 let summary = config.get_hold_summary(); // Count by type
 ```
 
-This design perfectly captures the Kilter board's hold system while providing type safety, validation, and efficient storage.
+## Proper Separation of Concerns
+
+The design correctly separates:
+
+1. **Problem Data**: Immutable problem information (holds, difficulty, etc.)
+2. **User Interaction Data**: User-specific state (attempts, completions, votes)
+3. **Combined Views**: API responses that merge both with proper user scoping
+
+```rust
+// For anonymous users
+let view = BoulderProblemWithUserData::anonymous(problem);
+
+// For authenticated users  
+let interaction = UserProblemInteraction::new(user_id, problem_id);
+interaction.record_completion(3);
+let view = BoulderProblemWithUserData::with_user_data(problem, interaction);
+
+// Safe access to user-scoped data
+let completed = view.user_has_completed(); // false for anonymous, actual state for users
+```
+
+This design perfectly captures the Kilter board's hold system while providing type safety, validation, efficient storage, and proper data scoping.

@@ -75,7 +75,7 @@ pub struct UpdateBoulderProblemRequest {
 }
 
 /// Public boulder problem information (safe to expose)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PublicBoulderProblem {
     pub id: Uuid,
     pub name: String,
@@ -88,13 +88,45 @@ pub struct PublicBoulderProblem {
     pub created_at: DateTime<Utc>,
 }
 
-/// Detailed boulder problem with additional metadata
+/// User-specific interaction data with a boulder problem
+#[derive(Debug, Serialize, Clone)]
+pub struct UserProblemInteraction {
+    pub user_id: Uuid,
+    pub problem_id: Uuid,
+    pub has_voted: bool,
+    pub has_attempted: bool,
+    pub has_completed: bool,
+    pub personal_best_attempts: Option<i32>, // Number of attempts before first completion
+    pub first_completed_at: Option<DateTime<Utc>>, // When they first completed it
+}
+
+/// Complete boulder problem view for a specific user
+/// This combines the public problem data with user-specific interaction data
 #[derive(Debug, Serialize)]
-pub struct BoulderProblemDetails {
+pub struct BoulderProblemWithUserData {
     pub problem: PublicBoulderProblem,
-    pub user_has_voted: bool,
-    pub user_has_attempted: bool,
-    pub user_has_completed: bool,
+    pub user_interaction: Option<UserProblemInteraction>, // None if user not authenticated
+}
+
+/// Response for problem lists - lighter weight without full hold configuration
+#[derive(Debug, Serialize)]
+pub struct BoulderProblemSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub creator_username: String,
+    pub difficulty: String,
+    pub tags: Vec<String>,
+    pub ascent_count: i32,
+    pub average_rating: Option<f64>,
+    pub hold_summary: HoldSummary, // Just the counts, not full configuration
+    pub created_at: DateTime<Utc>,
+}
+
+/// Response for problem lists with user data
+#[derive(Debug, Serialize)]
+pub struct BoulderProblemSummaryWithUserData {
+    pub problem: BoulderProblemSummary,
+    pub user_interaction: Option<UserProblemInteraction>,
 }
 
 impl HoldConfiguration {
@@ -263,6 +295,89 @@ impl Default for HoldConfiguration {
     }
 }
 
+impl UserProblemInteraction {
+    /// Create a new user interaction record
+    pub fn new(user_id: Uuid, problem_id: Uuid) -> Self {
+        Self {
+            user_id,
+            problem_id,
+            has_voted: false,
+            has_attempted: false,
+            has_completed: false,
+            personal_best_attempts: None,
+            first_completed_at: None,
+        }
+    }
+
+    /// Mark that the user has attempted this problem
+    pub fn record_attempt(&mut self) {
+        self.has_attempted = true;
+    }
+
+    /// Mark that the user has completed this problem
+    pub fn record_completion(&mut self, attempts: i32) {
+        self.has_completed = true;
+        self.has_attempted = true;
+        
+        // Only set personal best if this is their first completion or better
+        if self.personal_best_attempts.is_none() || attempts < self.personal_best_attempts.unwrap() {
+            self.personal_best_attempts = Some(attempts);
+        }
+        
+        // Set first completion time if not already set
+        if self.first_completed_at.is_none() {
+            self.first_completed_at = Some(Utc::now());
+        }
+    }
+
+    /// Mark that the user has voted on this problem
+    pub fn record_vote(&mut self) {
+        self.has_voted = true;
+    }
+}
+
+impl BoulderProblemWithUserData {
+    /// Create a view with no user data (for anonymous users)
+    pub fn anonymous(problem: PublicBoulderProblem) -> Self {
+        Self {
+            problem,
+            user_interaction: None,
+        }
+    }
+
+    /// Create a view with user interaction data
+    pub fn with_user_data(problem: PublicBoulderProblem, interaction: UserProblemInteraction) -> Self {
+        Self {
+            problem,
+            user_interaction: Some(interaction),
+        }
+    }
+
+    /// Check if the authenticated user has completed this problem
+    pub fn user_has_completed(&self) -> bool {
+        self.user_interaction
+            .as_ref()
+            .map(|i| i.has_completed)
+            .unwrap_or(false)
+    }
+
+    /// Check if the authenticated user has attempted this problem
+    pub fn user_has_attempted(&self) -> bool {
+        self.user_interaction
+            .as_ref()
+            .map(|i| i.has_attempted)
+            .unwrap_or(false)
+    }
+
+    /// Check if the authenticated user has voted on this problem
+    pub fn user_has_voted(&self) -> bool {
+        self.user_interaction
+            .as_ref()
+            .map(|i| i.has_voted)
+            .unwrap_or(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +508,77 @@ mod tests {
         assert_eq!(config.holds.len(), deserialized.holds.len());
         assert_eq!(config.get_hold_state("start_1"), deserialized.get_hold_state("start_1"));
         assert_eq!(config.get_hold_state("hand_1"), deserialized.get_hold_state("hand_1"));
+    }
+
+    #[test]
+    fn test_user_problem_interaction() {
+        let user_id = Uuid::new_v4();
+        let problem_id = Uuid::new_v4();
+        let mut interaction = UserProblemInteraction::new(user_id, problem_id);
+        
+        // Initially no interactions
+        assert!(!interaction.has_voted);
+        assert!(!interaction.has_attempted);
+        assert!(!interaction.has_completed);
+        assert_eq!(interaction.personal_best_attempts, None);
+        
+        // Record an attempt
+        interaction.record_attempt();
+        assert!(interaction.has_attempted);
+        assert!(!interaction.has_completed);
+        
+        // Record a completion
+        interaction.record_completion(5);
+        assert!(interaction.has_attempted);
+        assert!(interaction.has_completed);
+        assert_eq!(interaction.personal_best_attempts, Some(5));
+        assert!(interaction.first_completed_at.is_some());
+        
+        // Record a better completion
+        interaction.record_completion(3);
+        assert_eq!(interaction.personal_best_attempts, Some(3));
+        
+        // Record a worse completion (shouldn't update personal best)
+        interaction.record_completion(7);
+        assert_eq!(interaction.personal_best_attempts, Some(3));
+        
+        // Record a vote
+        interaction.record_vote();
+        assert!(interaction.has_voted);
+    }
+
+    #[test]
+    fn test_boulder_problem_with_user_data() {
+        let user_id = Uuid::new_v4();
+        let problem_id = Uuid::new_v4();
+        
+        // Create a mock public problem
+        let public_problem = PublicBoulderProblem {
+            id: problem_id,
+            name: "Test Problem".to_string(),
+            creator_username: "testuser".to_string(),
+            difficulty: "V5".to_string(),
+            hold_configuration: HoldConfiguration::new(),
+            tags: vec!["test".to_string()],
+            ascent_count: 10,
+            average_rating: Some(4.2),
+            created_at: Utc::now(),
+        };
+        
+        // Test anonymous view
+        let anonymous_view = BoulderProblemWithUserData::anonymous(public_problem.clone());
+        assert!(!anonymous_view.user_has_completed());
+        assert!(!anonymous_view.user_has_attempted());
+        assert!(!anonymous_view.user_has_voted());
+        
+        // Test with user interaction
+        let mut interaction = UserProblemInteraction::new(user_id, problem_id);
+        interaction.record_completion(3);
+        interaction.record_vote();
+        
+        let user_view = BoulderProblemWithUserData::with_user_data(public_problem, interaction);
+        assert!(user_view.user_has_completed());
+        assert!(user_view.user_has_attempted());
+        assert!(user_view.user_has_voted());
     }
 }
