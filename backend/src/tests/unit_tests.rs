@@ -1,6 +1,6 @@
 use crate::models::user::{User, UserProfile, UserStatistics, ProfileData, PrivacySettings};
 use uuid::Uuid;
-use chrono::{Utc, Datelike};
+use chrono::Utc;
 
 #[cfg(test)]
 mod user_model_tests {
@@ -129,10 +129,6 @@ mod user_model_tests {
         
         let stats_data = statistics.get_statistics_data().unwrap();
         assert!(stats_data.grade_distribution.is_empty());
-        assert!(stats_data.monthly_progress.is_empty());
-        assert!(stats_data.streak_records.is_empty());
-        assert!(stats_data.milestones.is_empty());
-        assert!(stats_data.favorite_problem_types.is_empty());
     }
 
     #[test]
@@ -149,12 +145,6 @@ mod user_model_tests {
         
         let stats_data = statistics.get_statistics_data().unwrap();
         assert_eq!(stats_data.grade_distribution.get("V3"), Some(&1));
-        assert_eq!(stats_data.monthly_progress.len(), 1);
-        
-        let monthly = &stats_data.monthly_progress[0];
-        assert_eq!(monthly.attempts, 1);
-        assert_eq!(monthly.ascents, 1);
-        assert_eq!(monthly.unique_problems, 1);
     }
 
     #[test]
@@ -171,12 +161,6 @@ mod user_model_tests {
         
         let stats_data = statistics.get_statistics_data().unwrap();
         assert_eq!(stats_data.grade_distribution.get("V5"), Some(&1));
-        assert_eq!(stats_data.monthly_progress.len(), 1);
-        
-        let monthly = &stats_data.monthly_progress[0];
-        assert_eq!(monthly.attempts, 1);
-        assert_eq!(monthly.ascents, 0);
-        assert_eq!(monthly.unique_problems, 1);
     }
 
     #[test]
@@ -255,26 +239,27 @@ mod user_model_tests {
     }
 
     #[test]
-    fn test_monthly_progress_tracking() {
+    fn test_grade_distribution_tracking() {
         let user_id = Uuid::new_v4();
         let mut statistics = UserStatistics::new(user_id);
         
-        // Record several attempts
+        // Record several attempts on different grades
         statistics.record_attempt("V2", true).unwrap();
         statistics.record_attempt("V3", false).unwrap();
         statistics.record_attempt("V2", true).unwrap();
+        statistics.record_attempt("V4", true).unwrap();
         
         let stats_data = statistics.get_statistics_data().unwrap();
-        assert_eq!(stats_data.monthly_progress.len(), 1);
         
-        let monthly = &stats_data.monthly_progress[0];
-        assert_eq!(monthly.attempts, 3);
-        assert_eq!(monthly.ascents, 2);
-        assert_eq!(monthly.unique_problems, 1); // This is a simplified implementation
+        // Should track all attempts (both successes and failures)
+        assert_eq!(stats_data.grade_distribution.get("V2"), Some(&2));
+        assert_eq!(stats_data.grade_distribution.get("V3"), Some(&1));
+        assert_eq!(stats_data.grade_distribution.get("V4"), Some(&1));
         
-        let now = Utc::now();
-        assert_eq!(monthly.year, now.year());
-        assert_eq!(monthly.month, now.month() as i32);
+        // Verify overall statistics
+        assert_eq!(statistics.total_attempts, 4);
+        assert_eq!(statistics.total_ascents, 3);
+        assert_eq!(statistics.personal_best_grade, Some("V4".to_string()));
     }
 
     #[test]
@@ -367,6 +352,5 @@ mod user_validation_tests {
         let deserialized_data = deserialized.get_statistics_data().unwrap();
         
         assert_eq!(original_data.grade_distribution, deserialized_data.grade_distribution);
-        assert_eq!(original_data.monthly_progress.len(), deserialized_data.monthly_progress.len());
     }
 }

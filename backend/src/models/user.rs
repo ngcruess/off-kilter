@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
-use chrono::{DateTime, Utc, Datelike};
+use chrono::{DateTime, Utc};
 
 /// Core user entity from the database
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -63,45 +63,10 @@ impl Default for PrivacySettings {
     }
 }
 
-/// Extended statistics data that gets serialized to JSONB
+/// Simplified statistics data for MVP - just grade distribution for charts
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StatisticsData {
     pub grade_distribution: std::collections::HashMap<String, i32>,
-    pub monthly_progress: Vec<MonthlyProgress>,
-    pub streak_records: Vec<StreakRecord>,
-    pub milestones: Vec<Milestone>,
-    pub favorite_problem_types: Vec<String>,
-}
-
-/// Monthly climbing progress tracking
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonthlyProgress {
-    pub year: i32,
-    pub month: i32,
-    pub attempts: i32,
-    pub ascents: i32,
-    pub unique_problems: i32,
-}
-
-/// Streak tracking for various achievements
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreakRecord {
-    pub streak_type: String, // "daily_climb", "weekly_ascent", etc.
-    pub current_count: i32,
-    pub best_count: i32,
-    pub start_date: DateTime<Utc>,
-    pub last_activity: DateTime<Utc>,
-}
-
-/// Achievement milestones
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Milestone {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub category: String, // "ascents", "grades", "streaks", etc.
-    pub achieved_at: DateTime<Utc>,
-    pub value: i32, // The value that triggered the milestone
 }
 
 /// Request/Response DTOs for API endpoints
@@ -217,40 +182,9 @@ impl UserStatistics {
             }
         }
 
-        // Update extended statistics
+        // Update grade distribution (track all attempts, not just successes)
         let mut stats_data = self.get_statistics_data()?;
-        
-        // Update grade distribution
         *stats_data.grade_distribution.entry(grade.to_string()).or_insert(0) += 1;
-        
-        // Update monthly progress
-        let now = Utc::now();
-        if let Some(current_month) = stats_data.monthly_progress.last_mut() {
-            if current_month.year == now.year() && current_month.month == now.month() as i32 {
-                current_month.attempts += 1;
-                if success {
-                    current_month.ascents += 1;
-                }
-            } else {
-                // New month
-                stats_data.monthly_progress.push(MonthlyProgress {
-                    year: now.year(),
-                    month: now.month() as i32,
-                    attempts: 1,
-                    ascents: if success { 1 } else { 0 },
-                    unique_problems: 1,
-                });
-            }
-        } else {
-            // First entry
-            stats_data.monthly_progress.push(MonthlyProgress {
-                year: now.year(),
-                month: now.month() as i32,
-                attempts: 1,
-                ascents: if success { 1 } else { 0 },
-                unique_problems: 1,
-            });
-        }
 
         self.statistics_data = serde_json::to_value(stats_data)?;
         self.updated_at = Utc::now();
