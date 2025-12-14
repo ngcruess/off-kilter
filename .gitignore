@@ -62,6 +62,3 @@ coverage/
 # Build outputs
 dist/
 build/
-
-# Kiro 
-.kiro/
