@@ -9,6 +9,7 @@ This guide will get you up and running with the Kilter Board application from a 
 - **Node.js** (18+): [Install via official installer](https://nodejs.org/) or `brew install node`
 - **OrbStack**: [Install via Homebrew](https://orbstack.dev/) - `brew install orbstack`
 - **Just**: Task runner - `brew install just`
+- **uv**: Python package manager - `brew install uv`
 
 ### Platform-Specific Requirements
 
@@ -21,7 +22,7 @@ xcode-select --install
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install all tools at once
-brew install node orbstack just
+brew install node orbstack just uv
 ```
 
 #### Linux

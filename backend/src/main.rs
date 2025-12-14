@@ -14,11 +14,13 @@ use tracing_subscriber;
 use kilter_board_backend::{
     config::AppConfig,
     database::connection::{create_pool, run_migrations, health_check},
+    auth::{AuthUser, RequireAuth, JwtConfig},
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    pub jwt_config: JwtConfig,
 }
 
 #[tokio::main]
@@ -37,12 +39,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_migrations(&db_pool).await?;
 
     // Create application state
-    let app_state = AppState { db: db_pool };
+    let app_state = AppState { 
+        db: db_pool,
+        jwt_config: config.jwt.clone(),
+    };
 
     // Build our application with routes
     let app = Router::new()
         .route("/", get(root))
         .route("/health", get(health))
+        .route("/protected", get(protected_route))
+        .route("/user-info", get(user_info))
         .with_state(app_state)
         .layer(CorsLayer::permissive());
 
@@ -71,4 +78,24 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, StatusCode
             Err(StatusCode::SERVICE_UNAVAILABLE)
         }
     }
+}
+
+// Test endpoint that requires authentication but doesn't extract user info
+async fn protected_route(_auth: RequireAuth) -> Json<Value> {
+    Json(json!({
+        "message": "This is a protected route",
+        "authenticated": true
+    }))
+}
+
+// Test endpoint that extracts user information from JWT
+async fn user_info(user: AuthUser) -> Json<Value> {
+    Json(json!({
+        "message": "User information extracted from JWT",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username
+        }
+    }))
 }

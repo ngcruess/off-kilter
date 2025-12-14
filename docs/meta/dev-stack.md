@@ -78,6 +78,16 @@ The Kilter Board application is built with a focus on **performance**, **develop
 - **Features**: Built-in help, parameter passing, conditional execution
 - **Performance**: Fast startup, no shell overhead
 
+### Python Package Management: uv
+**Choice**: uv instead of pip/venv/poetry
+**Why**:
+- **Blazing Performance**: 10-100x faster than pip (written in Rust)
+- **Zero Configuration**: Automatic virtual environment management
+- **Reproducible Builds**: Lock files ensure consistent dependencies
+- **Drop-in Replacement**: Familiar pip-like commands but way better
+- **No Dependency Hell**: Proper dependency resolution that actually works
+- **Modern Tooling**: Built-in project management and publishing support
+
 ### Testing Strategy: Dual Approach
 **Choice**: Unit tests + Property-based testing
 **Why**:
@@ -192,6 +202,7 @@ The Kilter Board application is built with a focus on **performance**, **develop
 | React Native | 2024-12 | Cross-platform + DX | Flutter, Native |
 | PostgreSQL | 2024-12 | ACID + JSON support | MySQL, MongoDB |
 | OrbStack | 2024-12 | macOS performance | Docker Desktop, Podman |
+| uv Package Manager | 2024-12 | Speed + Modern tooling | pip, poetry, conda |
 | Property Testing | 2024-12 | Correctness guarantees | Unit tests only |
 
 ---

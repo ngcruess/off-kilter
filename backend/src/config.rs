@@ -1,10 +1,12 @@
 use crate::database::connection::DatabaseConfig;
+use crate::auth::jwt::JwtConfig;
 use std::env;
 use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
+    pub jwt: JwtConfig,
     pub server_host: String,
     pub server_port: u16,
     pub log_level: String,
@@ -18,6 +20,7 @@ impl AppConfig {
         }
 
         let database = DatabaseConfig::from_env()?;
+        let jwt = JwtConfig::from_env()?;
         
         let server_host = env::var("SERVER_HOST")
             .unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -32,6 +35,7 @@ impl AppConfig {
 
         Ok(Self {
             database,
+            jwt,
             server_host,
             server_port,
             log_level,

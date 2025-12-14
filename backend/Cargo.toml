@@ -17,6 +17,8 @@ tower-http = { version = "0.5.2", features = ["cors", "trace"] }
 sqlx = { version = "0.7.3", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
 dotenvy = "0.15"
 url = "2.4"
+jsonwebtoken = "9.2"
+base64 = "0.21"
 
 [dev-dependencies]
 quickcheck = "1.0"
