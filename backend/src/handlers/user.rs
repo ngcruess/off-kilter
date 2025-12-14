@@ -10,10 +10,53 @@ use uuid::Uuid;
 use crate::{
     auth::AuthUser,
     error::AppError,
-    models::user::{CreateUserRequest, UpdateUserRequest, ProfileData, PublicUser, PublicStatistics},
+    models::user::{CreateUserRequest, UpdateUserRequest, ProfileData, PublicUser, PublicStatistics, UserStatistics, StatisticsData},
     repositories::user::UserRepository,
     state::AppState,
 };
+
+/// Helper function to create public statistics based on privacy settings
+fn create_public_statistics(
+    statistics: &UserStatistics,
+    statistics_data: &StatisticsData,
+    visibility: &str,
+) -> PublicStatistics {
+    match visibility {
+        "public" => PublicStatistics {
+            total_attempts: Some(statistics.total_attempts),
+            total_ascents: Some(statistics.total_ascents),
+            personal_best_grade: statistics.personal_best_grade.clone(),
+            grade_distribution: Some(statistics_data.grade_distribution.clone()),
+        },
+        _ => PublicStatistics {
+            total_attempts: None,
+            total_ascents: None,
+            personal_best_grade: None,
+            grade_distribution: None,
+        },
+    }
+}
+
+/// Helper function to filter profile data based on privacy settings for public access
+fn filter_profile_for_public(profile_data: &ProfileData) -> ProfileData {
+    match profile_data.privacy_settings.profile_visibility.as_str() {
+        "public" => profile_data.clone(),
+        "friends" => ProfileData {
+            first_name: None,
+            last_name: None,
+            display_name: profile_data.display_name.clone(),
+            bio: None,
+            avatar_url: profile_data.avatar_url.clone(),
+            location: None,
+            preferred_units: None,
+            privacy_settings: profile_data.privacy_settings.clone(),
+        },
+        _ => ProfileData {
+            display_name: Some("Private User".to_string()),
+            ..Default::default()
+        },
+    }
+}
 
 pub fn user_routes() -> Router<AppState> {
     Router::new()
@@ -78,21 +121,12 @@ async fn get_current_user(
     let statistics_data = statistics.get_statistics_data()
         .map_err(|e| AppError::InternalError(format!("Failed to parse statistics data: {}", e)))?;
 
-    // Respect privacy settings
-    let public_stats = match profile_data.privacy_settings.statistics_visibility.as_str() {
-        "public" => PublicStatistics {
-            total_attempts: Some(statistics.total_attempts),
-            total_ascents: Some(statistics.total_ascents),
-            personal_best_grade: statistics.personal_best_grade.clone(),
-            grade_distribution: Some(statistics_data.grade_distribution),
-        },
-        _ => PublicStatistics {
-            total_attempts: None,
-            total_ascents: None,
-            personal_best_grade: None,
-            grade_distribution: None,
-        },
-    };
+    // Respect privacy settings using helper function
+    let public_stats = create_public_statistics(
+        &statistics,
+        &statistics_data,
+        &profile_data.privacy_settings.statistics_visibility,
+    );
 
     let public_user = PublicUser {
         id: user_data.id,
@@ -111,6 +145,42 @@ async fn update_current_user(
     State(state): State<AppState>,
     Json(request): Json<UpdateUserRequest>,
 ) -> Result<Json<Value>, AppError> {
+    // Fast-fail validation before database operations
+    if let Some(ref profile_data) = request.profile {
+        // Validate display name length
+        if let Some(ref display_name) = profile_data.display_name {
+            if display_name.len() > 50 {
+                return Err(AppError::BadRequest("Display name must be 50 characters or less".to_string()));
+            }
+        }
+        
+        // Validate bio length
+        if let Some(ref bio) = profile_data.bio {
+            if bio.len() > 500 {
+                return Err(AppError::BadRequest("Bio must be 500 characters or less".to_string()));
+            }
+        }
+        
+        // Validate privacy settings
+        let valid_visibility_options = ["public", "friends", "private"];
+        if !valid_visibility_options.contains(&profile_data.privacy_settings.profile_visibility.as_str()) {
+            return Err(AppError::BadRequest("Invalid profile visibility setting".to_string()));
+        }
+        if !valid_visibility_options.contains(&profile_data.privacy_settings.statistics_visibility.as_str()) {
+            return Err(AppError::BadRequest("Invalid statistics visibility setting".to_string()));
+        }
+        if !valid_visibility_options.contains(&profile_data.privacy_settings.history_visibility.as_str()) {
+            return Err(AppError::BadRequest("Invalid history visibility setting".to_string()));
+        }
+        
+        // Validate preferred units
+        if let Some(ref units) = profile_data.preferred_units {
+            if !["metric", "imperial"].contains(&units.as_str()) {
+                return Err(AppError::BadRequest("Preferred units must be 'metric' or 'imperial'".to_string()));
+            }
+        }
+    }
+
     let repo = UserRepository::new(state.db);
 
     if let Some(profile_data) = request.profile {
@@ -152,39 +222,13 @@ async fn get_user_by_id(
     let statistics_data = statistics.get_statistics_data()
         .map_err(|e| AppError::InternalError(format!("Failed to parse statistics data: {}", e)))?;
 
-    // Check privacy settings for public access
-    let filtered_profile = match profile_data.privacy_settings.profile_visibility.as_str() {
-        "public" => profile_data.clone(),
-        "friends" => ProfileData {
-            first_name: None,
-            last_name: None,
-            display_name: profile_data.display_name,
-            bio: None,
-            avatar_url: profile_data.avatar_url,
-            location: None,
-            preferred_units: None,
-            privacy_settings: profile_data.privacy_settings.clone(),
-        },
-        _ => ProfileData {
-            display_name: Some("Private User".to_string()),
-            ..Default::default()
-        },
-    };
-
-    let public_stats = match profile_data.privacy_settings.statistics_visibility.as_str() {
-        "public" => PublicStatistics {
-            total_attempts: Some(statistics.total_attempts),
-            total_ascents: Some(statistics.total_ascents),
-            personal_best_grade: statistics.personal_best_grade.clone(),
-            grade_distribution: Some(statistics_data.grade_distribution),
-        },
-        _ => PublicStatistics {
-            total_attempts: None,
-            total_ascents: None,
-            personal_best_grade: None,
-            grade_distribution: None,
-        },
-    };
+    // Check privacy settings for public access using helper functions
+    let filtered_profile = filter_profile_for_public(&profile_data);
+    let public_stats = create_public_statistics(
+        &statistics,
+        &statistics_data,
+        &profile_data.privacy_settings.statistics_visibility,
+    );
 
     let public_user = PublicUser {
         id: user_data.id,

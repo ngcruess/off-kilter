@@ -12,10 +12,14 @@ def test_duplicate_validation():
     """Test that duplicate email and username are properly rejected"""
     print("🧪 Testing duplicate validation...")
     
+    # Use timestamp to make data unique
+    import time
+    timestamp = int(time.time())
+    
     # First user data
     user_data = {
-        "email": "duplicate@example.com",
-        "username": "duplicateuser",
+        "email": f"duplicate{timestamp}@example.com",
+        "username": f"duplicateuser{timestamp}",
         "password": "securepassword",
         "profile": {
             "first_name": "First",
@@ -50,7 +54,7 @@ def test_duplicate_validation():
     
     # Try to register with same username
     user_data3 = user_data.copy()
-    user_data3["email"] = "different@example.com"
+    user_data3["email"] = f"different{timestamp}@example.com"
     
     response3 = requests.post(f"{BASE_URL}/users", json=user_data3)
     if response3.status_code == 400 and "Username already taken" in response3.text:

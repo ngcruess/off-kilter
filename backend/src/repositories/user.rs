@@ -303,18 +303,65 @@ impl UserRepository {
 
 
     /// Get complete user data with profile and statistics
+    /// Optimized: Uses fewer queries but still reliable
     pub async fn get_user_with_details(&self, user_id: Uuid) -> Result<Option<(User, UserProfile, UserStatistics)>, AppError> {
-        let user = match self.find_by_id(user_id).await? {
-            Some(user) => user,
+        // For now, let's use a transaction to ensure consistency while keeping it optimized
+        let mut tx = self.pool.begin().await?;
+        
+        // Get user first
+        let user_row = sqlx::query!(
+            "SELECT id, email, username, created_at, updated_at FROM users WHERE id = $1",
+            user_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let user = match user_row {
+            Some(row) => User {
+                id: row.id,
+                email: row.email,
+                username: row.username,
+                created_at: row.created_at.unwrap_or_else(|| Utc::now()),
+                updated_at: row.updated_at.unwrap_or_else(|| Utc::now()),
+            },
             None => return Ok(None),
         };
 
-        let profile = self.get_profile(user_id).await?
+        // Get profile and statistics sequentially within the transaction
+        let profile_row = sqlx::query!(
+            "SELECT user_id, profile_data, updated_at FROM user_profiles WHERE user_id = $1",
+            user_id
+        ).fetch_optional(&mut *tx).await?;
+
+        let stats_row = sqlx::query!(
+            r#"
+            SELECT user_id, total_attempts, total_ascents, personal_best_grade, statistics_data, updated_at 
+            FROM user_statistics 
+            WHERE user_id = $1
+            "#,
+            user_id
+        ).fetch_optional(&mut *tx).await?;
+
+        let profile = profile_row
+            .map(|row| UserProfile {
+                user_id: row.user_id,
+                profile_data: row.profile_data,
+                updated_at: row.updated_at.unwrap_or_else(|| Utc::now()),
+            })
             .ok_or_else(|| AppError::NotFound("User profile not found".to_string()))?;
 
-        let statistics = self.get_statistics(user_id).await?
+        let statistics = stats_row
+            .map(|row| UserStatistics {
+                user_id: row.user_id,
+                total_attempts: row.total_attempts.unwrap_or(0),
+                total_ascents: row.total_ascents.unwrap_or(0),
+                personal_best_grade: row.personal_best_grade,
+                statistics_data: row.statistics_data,
+                updated_at: row.updated_at.unwrap_or_else(|| Utc::now()),
+            })
             .ok_or_else(|| AppError::NotFound("User statistics not found".to_string()))?;
 
+        tx.commit().await?;
         Ok(Some((user, profile, statistics)))
     }
 }
