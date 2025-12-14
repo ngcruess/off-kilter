@@ -9,8 +9,9 @@ RUN rustup update && cargo install cargo-watch
 COPY Cargo.toml ./
 COPY Cargo.lock ./
 
-# Copy backend manifests
+# Copy backend manifests and migrations
 COPY backend/Cargo.toml ./backend/
+COPY backend/migrations ./backend/migrations/
 
 # Create a dummy main.rs to build dependencies
 RUN mkdir -p backend/src && echo "fn main() {}" > backend/src/main.rs
