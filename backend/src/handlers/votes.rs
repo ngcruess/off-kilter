@@ -1,0 +1,1 @@
+// Vote handlers - placeholder for now

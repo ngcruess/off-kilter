@@ -1,0 +1,28 @@
+FROM rust:latest
+
+WORKDIR /app
+
+# Update the package index and install cargo-watch
+RUN rustup update && cargo install cargo-watch
+
+# Copy workspace manifest first
+COPY Cargo.toml ./
+COPY Cargo.lock ./
+
+# Copy backend manifests
+COPY backend/Cargo.toml ./backend/
+
+# Create a dummy main.rs to build dependencies
+RUN mkdir -p backend/src && echo "fn main() {}" > backend/src/main.rs
+
+# Build dependencies in the backend directory
+WORKDIR /app/backend
+RUN cargo build
+
+# Remove the dummy main.rs
+RUN rm -rf src
+
+EXPOSE 3000
+
+# Use cargo-watch for hot reloading
+CMD ["cargo", "watch", "-x", "run"]

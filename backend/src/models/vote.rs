@@ -1,0 +1,1 @@
+// Vote model - placeholder for now
