@@ -36,7 +36,7 @@ This implementation plan follows a **vertical slice** approach where each featur
 ## Feature 1: User Account Management
 
 - [ ] 3. User account lifecycle (complete vertical slice)
-- [ ] 3.1 Create User data model and database schema
+- [x] 3.1 Create User data model and database schema
   - Implement User struct with serde serialization
   - Create users table with proper indexes
   - Add user statistics and profile fields

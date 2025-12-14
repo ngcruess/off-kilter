@@ -4,3 +4,4 @@ pub mod database;
 pub mod auth;
 pub mod error;
 pub mod config;
+pub mod repositories;
