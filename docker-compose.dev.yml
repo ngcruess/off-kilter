@@ -41,6 +41,8 @@ services:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/kilter_board
       REDIS_URL: redis://redis:6379
       RUST_LOG: debug
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production-please
+      JWT_EXPIRATION_HOURS: 24
     depends_on:
       postgres:
         condition: service_healthy

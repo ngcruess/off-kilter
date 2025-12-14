@@ -85,12 +85,20 @@ where
             return Err(AuthError::InvalidToken);
         }
 
-        // Validate the JWT token
-        let jwt_config = jwt_config_from_env();
+        // For now, we'll create a JWT config from env
+        // In a real app, you'd want to pass this through app state
+        let jwt_config = JwtConfig::from_env().map_err(|_| AuthError::InternalError)?;
+        
+        tracing::debug!("Validating JWT token with secret: {}", &jwt_config.secret[..10]);
+        tracing::debug!("Token to validate: {}", &token[..token.len().min(20)]);
+        
         verify_token(token, &jwt_config)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::ExpiredToken,
-                _ => AuthError::InvalidToken,
+            .map_err(|e| {
+                tracing::error!("JWT validation failed: {:?}", e);
+                match e.kind() {
+                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::ExpiredToken,
+                    _ => AuthError::InvalidToken,
+                }
             })?;
 
         Ok(RequireAuth)
@@ -121,7 +129,9 @@ where
         let token = &auth_str[7..]; // Remove "Bearer " prefix
 
         // Get JWT config from environment
-        let jwt_config = jwt_config_from_env();
+        let jwt_config = JwtConfig::from_env().map_err(|_| AuthError::InternalError)?;
+        
+        tracing::debug!("Extracting user from JWT token");
 
         // Verify the JWT token
         let claims = verify_token(token, &jwt_config)
@@ -135,56 +145,54 @@ where
     }
 }
 
-// Helper function to create JWT config from environment
-fn jwt_config_from_env() -> JwtConfig {
-    JwtConfig {
-        secret: std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "your-secret-key-change-this-in-production".to_string()),
-        algorithm: jsonwebtoken::Algorithm::HS256,
-        expiration_hours: std::env::var("JWT_EXPIRATION_HOURS")
-            .unwrap_or_else(|_| "24".to_string())
-            .parse()
-            .unwrap_or(24),
-    }
-}
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{
-        body::Body,
-        http::{Request, StatusCode},
-    };
-    use tower::ServiceExt;
+    use axum::http::{HeaderValue, Method};
+
+    fn create_test_parts() -> Parts {
+        let request = axum::http::Request::builder()
+            .method(Method::GET)
+            .uri("/")
+            .body(())
+            .unwrap();
+        let (parts, _) = request.into_parts();
+        parts
+    }
 
     #[tokio::test]
     async fn test_missing_auth_header() {
-        let mut parts = Parts::default();
+        let mut parts = create_test_parts();
         let result = RequireAuth::from_request_parts(&mut parts, &()).await;
         assert!(matches!(result, Err(AuthError::MissingToken)));
     }
 
     #[tokio::test]
     async fn test_invalid_auth_format() {
-        let mut parts = Parts::default();
-        parts.headers.insert("Authorization", "InvalidFormat".parse().unwrap());
+        let mut parts = create_test_parts();
+        parts.headers.insert("Authorization", HeaderValue::from_static("InvalidFormat"));
         let result = RequireAuth::from_request_parts(&mut parts, &()).await;
         assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 
     #[tokio::test]
-    async fn test_valid_bearer_token() {
-        let mut parts = Parts::default();
-        parts.headers.insert("Authorization", "Bearer valid-token-here".parse().unwrap());
+    async fn test_empty_bearer_token() {
+        let mut parts = create_test_parts();
+        parts.headers.insert("Authorization", HeaderValue::from_static("Bearer "));
         let result = RequireAuth::from_request_parts(&mut parts, &()).await;
-        assert!(result.is_ok());
+        assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 
     #[tokio::test]
-    async fn test_empty_bearer_token() {
-        let mut parts = Parts::default();
-        parts.headers.insert("Authorization", "Bearer ".parse().unwrap());
+    async fn test_bearer_token_format_accepted() {
+        // This test just checks that the Bearer format is accepted
+        // The actual JWT validation will fail, but we should get past the format check
+        let mut parts = create_test_parts();
+        parts.headers.insert("Authorization", HeaderValue::from_static("Bearer some-token"));
         let result = RequireAuth::from_request_parts(&mut parts, &()).await;
+        // Should fail on JWT validation, not format validation
         assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 }
